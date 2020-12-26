@@ -1,0 +1,80 @@
+airspy-host (1.0.9-1) unstable; urgency=medium
+
+  * New upstream release
+  * Allow all console users access via udev, Thanks Petter! (Closes: #840384)
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Wed, 12 Oct 2016 20:03:21 -0400
+
+airspy-host (1.0.8-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Mon, 25 Apr 2016 22:02:56 -0400
+
+airspy-host (1.0.7-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Mon, 14 Dec 2015 00:50:54 -0500
+
+airspy-host (1.0.6-4) unstable; urgency=medium
+
+  * Upstream fixes
+    On linux check whether a kernel driver is attached t
+    Linux moved libusb_detach_kernel_driver before libus
+    Support cross compilation via MinGW64
+    cmake Use LIB_SUFFIX for libairspy.pc
+    fix for repeat of usage message x19
+    Added the ability to customize the IQ conversion FIR
+    Optimized the IQ conversion code
+    Fixed a c p error
+    Fix Buffer overflow 30 thanks to Nicolasp38
+  
+ -- A. Maitland Bottoms <bottoms@debian.org>  Wed, 25 Nov 2015 20:33:53 -0500
+
+airspy-host (1.0.6-3) unstable; urgency=medium
+
+  * Lintian fixes
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Thu, 19 Nov 2015 19:05:30 -0500
+
+airspy-host (1.0.6-2) unstable; urgency=low
+
+  * add watch file, dh-acc, Vcs-* updates
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Thu, 10 Sep 2015 22:56:10 -0400
+
+airspy-host (1.0.6-1) unstable; urgency=medium
+
+  * New upstream release
+    Added management of multiple devices or using device serial number
+    supported in all airspy-tools.
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Sat, 01 Aug 2015 23:58:39 -0400
+
+airspy-host (0.2.22.b4c38a7-1) unstable; urgency=low
+
+  * New upstream commits
+    Merge branch 'master' of https://github.com/airspy/host.git
+    Added a two poles BPF for proper roll-off
+    Fix for Issue #4 airspy_commands.h is not installed
+    Implemented new API airspy_set_samplerate(), airspy_gpio_read(),
+     airspy_gpio_write() and airspy_set_rf_bias() only for AirSpy NOS.
+    Added a function stub for RF bias (bias-tee, phantom-power)
+    Added function stubs for extra hardware sample rates
+  
+ -- A. Maitland Bottoms <bottoms@debian.org>  Wed, 20 Aug 2014 10:31:26 -0400
+
+airspy-host (0.2.14.f26db23-1) unstable; urgency=low
+
+  * New upstream commit - Changed the IQ conversion filters 
+    to match the bandwidth of the new R820T2 tuner
+  * place airspy in comm archive section (Closes: #751349)
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Tue, 17 Jun 2014 20:34:47 -0400
+
+airspy-host (0.2.13.9350af1-1) unstable; urgency=low
+
+  * New package (Closes: #745263)
+
+ -- A. Maitland Bottoms <bottoms@debian.org>  Sat, 19 Apr 2014 20:36:56 -0400

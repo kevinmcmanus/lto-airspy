@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<descriptor>
+
+<headers>
+debian/libairspy-dev/usr/include/
+</headers>
+
+<libs>
+debian/libairspy0/usr/lib/
+</libs>
+
+</descriptor>

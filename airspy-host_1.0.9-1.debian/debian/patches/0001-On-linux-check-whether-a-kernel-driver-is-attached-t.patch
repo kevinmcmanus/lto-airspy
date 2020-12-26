@@ -1,0 +1,44 @@
+From 7e9a0a62981caf34077cbb35fb435d8b4306538f Mon Sep 17 00:00:00 2001
+From: bvernoux <bvernoux@gmail.com>
+Date: Tue, 26 May 2015 22:08:19 +0200
+Subject: [PATCH 01/10] On linux check whether a kernel driver is attached to
+ airspy device opened and if so, we detach it.
+
+---
+ libairspy/src/airspy.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+--- a/libairspy/src/airspy.c
++++ b/libairspy/src/airspy.c
+@@ -688,6 +688,15 @@
+ 								*libusb_dev_handle = NULL;
+ 								continue;
+ 							}
++#ifdef __linux__
++							/* Check whether a kernel driver is attached to interface #0. If so, we'll 
++							 * need to detach it.
++							 */
++							if (libusb_kernel_driver_active(dev_handle, 0))
++							{
++								libusb_detach_kernel_driver(dev_handle, 0);
++							}
++#endif
+ 							result = libusb_claim_interface(dev_handle, 0);
+ 							if (result != 0)
+ 							{
+@@ -733,6 +742,15 @@
+ 						*libusb_dev_handle = NULL;
+ 						continue;
+ 					}
++#ifdef __linux__
++					/* Check whether a kernel driver is attached to interface #0. If so, we'll 
++					 * need to detach it.
++					 */
++					if (libusb_kernel_driver_active(dev_handle, 0))
++					{
++						libusb_detach_kernel_driver(dev_handle, 0);
++					}
++#endif
+ 					result = libusb_claim_interface(dev_handle, 0);
+ 					if (result != 0)
+ 					{
