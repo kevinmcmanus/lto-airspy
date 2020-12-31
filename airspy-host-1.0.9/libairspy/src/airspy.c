@@ -610,7 +610,7 @@ static void airspy_open_device(airspy_device_t* device,
 	uint64_t serial_number_val)
 {
 	int i;
-	int result;
+	int result, open_res;
 	libusb_device_handle** libusb_dev_handle;
 	int serial_number_len;
 	libusb_device_handle* dev_handle;
@@ -714,7 +714,8 @@ static void airspy_open_device(airspy_device_t* device,
 			}
 			else
 			{
-				if (libusb_open(dev, libusb_dev_handle) == 0)
+                open_res = libusb_open(dev, libusb_dev_handle);
+				if (open_res == 0)
 				{
 					dev_handle = *libusb_dev_handle;
 #ifdef __linux__

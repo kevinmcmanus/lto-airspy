@@ -544,7 +544,7 @@ int main(int argc, char** argv)
 		switch( opt ) 
 		{
 			case 'r':
-				receive = true;
+				receive_wav = true;
 				path = optarg;
 			break;
 
@@ -734,13 +734,17 @@ int main(int argc, char** argv)
 			return EXIT_FAILURE;
 		}
 
-		time (&rawtime);
-		timeinfo = localtime (&rawtime);
-		receiver_mode = RECEIVER_MODE_RX;
-		/* File format AirSpy Year(2013), Month(11), Day(28), Hour Min Sec+Z, Freq kHz, IQ.wav */
-		strftime(date_time, DATE_TIME_MAX_LEN, "%Y%m%d_%H%M%S", timeinfo);
-		snprintf(path_file, PATH_FILE_MAX_LEN, "AirSpy_%sZ_%ukHz_IQ.wav", date_time, (uint32_t)(freq_hz/(1000ull)) );
-		path = path_file;
+        if (path == NULL)
+        {
+            time (&rawtime);
+            timeinfo = localtime (&rawtime);
+            receiver_mode = RECEIVER_MODE_RX;
+            /* File format AirSpy Year(2013), Month(11), Day(28), Hour Min Sec+Z, Freq kHz, IQ.wav */
+            strftime(date_time, DATE_TIME_MAX_LEN, "%Y%m%d_%H%M%S", timeinfo);
+            snprintf(path_file, PATH_FILE_MAX_LEN, "AirSpy_%sZ_%ukHz_IQ.wav", date_time, (uint32_t)(freq_hz/(1000ull)) );
+            path = path_file;
+        }
+
 		printf("Receive wav file: %s\n", path);
 	}	
 
@@ -1016,14 +1020,6 @@ int main(int argc, char** argv)
 		}
 	}
 
-	result = airspy_start_rx(device, rx_callback, NULL);
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
-		airspy_close(device);
-		airspy_exit();
-		return EXIT_FAILURE;
-	}
-
 	result = airspy_set_freq(device, freq_hz);
 	if( result != AIRSPY_SUCCESS ) {
 		printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
@@ -1032,6 +1028,13 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
+	result = airspy_start_rx(device, rx_callback, NULL);
+	if( result != AIRSPY_SUCCESS ) {
+		printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
+		airspy_close(device);
+		airspy_exit();
+		return EXIT_FAILURE;
+	}
 	printf("Stop with Ctrl-C\n");
 
 	average_rate = (float) wav_sample_per_sec;
