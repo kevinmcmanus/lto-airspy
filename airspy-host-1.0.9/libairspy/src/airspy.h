@@ -91,6 +91,28 @@ enum airspy_sample_type
 	AIRSPY_SAMPLE_END = 6           /* Number of supported sample types */
 };
 
+/* semaphore & shared mem for daemon */
+/*
+union semun {
+    int                 val;
+    struct semid_ds *   buf;
+    unsigned short *    array;
+#if defined(__linux__)
+    struct seminfo *    __buf;
+#endif
+};
+*/
+
+/* IPC Keys */
+#define IPC_Path "/tmp"
+#define IPC_Proj ((int) 'L') /* as in LTO */
+typedef struct {
+    pid_t rx_pid;
+    int32_t nblocks;
+    char dirname[FILENAME_MAX];
+    char filename[FILENAME_MAX];
+} airspy_ipc_t;
+
 #define MAX_CONFIG_PAGE_SIZE (0x10000)
 
 struct airspy_device;

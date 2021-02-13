@@ -53,6 +53,18 @@ install(TARGETS airspy_info RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 add_executable(airspy_rx airspy_rx.c)
 install(TARGETS airspy_rx RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 
+add_executable(airspy_rxd airspy_rxd.c)
+install(TARGETS airspy_rxd RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
+
+add_executable(airspy_reader airspy_reader.c)
+install(TARGETS airspy_reader RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
+
+add_executable(airspy_rxmon airspy_rxmon.c)
+install(TARGETS airspy_rxmon RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
+
+add_executable(readwav_hdr readwav_hdr.c)
+install(TARGETS airspy_reader RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
+
 if(NOT libairspy_SOURCE_DIR)
 include_directories(${LIBAIRSPY_INCLUDE_DIR})
 LIST(APPEND TOOLS_LINK_LIBS ${LIBAIRSPY_LIBRARIES})
@@ -72,3 +84,7 @@ target_link_libraries(airspy_r820t ${TOOLS_LINK_LIBS})
 target_link_libraries(airspy_spiflash ${TOOLS_LINK_LIBS})
 target_link_libraries(airspy_info ${TOOLS_LINK_LIBS})
 target_link_libraries(airspy_rx ${TOOLS_LINK_LIBS})
+target_link_libraries(airspy_rxd ${TOOLS_LINK_LIBS})
+target_link_libraries(airspy_reader ${TOOLS_LINK_LIBS})
+target_link_libraries(airspy_rxmon ${TOOLS_LINK_LIBS})
+target_link_libraries(readwav_hdr ${TOOLS_LINK_LIBS})

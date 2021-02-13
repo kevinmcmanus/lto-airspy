@@ -1,0 +1,4 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}/airspy-host-1.0.9",
+    "python.pythonPath": "/home/mcmanus/anaconda3/bin/python"
+}

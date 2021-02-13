@@ -20,7 +20,6 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include <airspy.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,6 +32,11 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <limits.h>
+#include <dirent.h>
+
+#include "svshm_string.h"
+
+#include <airspy.h>
 
 #define AIRSPY_RX_VERSION "1.0.5 23 April 2016"
 
@@ -121,6 +125,9 @@ int gettimeofday(struct timeval *tv, void* ignored)
 #define SAMPLES_TO_XFER_MAX_U64 (0x8000000000000000ull) /* Max value */
 
 #define MIN_SAMPLERATE_BY_VALUE (1000000)
+
+#define PATH_FILE_MAX_LEN (FILENAME_MAX)
+#define DATE_TIME_MAX_LEN (32)
 
 /* WAVE or RIFF WAVE file format containing data for AirSpy compatible with SDR# Wav IQ file */
 typedef struct 
@@ -218,6 +225,7 @@ FILE* fd = NULL;
 bool verbose = false;
 bool receive = false;
 bool receive_wav = false;
+bool airspy_daemon = false;
 
 struct timeval time_start;
 struct timeval t_start;
@@ -235,6 +243,7 @@ uint32_t freq_hz;
 bool limit_num_samples = false;
 uint64_t samples_to_xfer = 0;
 uint64_t bytes_to_xfer = 0;
+uint64_t nrx_callbacks = 0;
 
 bool call_set_packing = false;
 uint32_t packing_val = 0;
@@ -250,6 +259,10 @@ uint32_t biast_val;
 
 bool serial_number = false;
 uint64_t serial_number_val;
+
+/*ipc globals */
+int rxd_semid;
+airspy_ipc_t *rxd_ipc;
 
 static float
 TimevalDiff(const struct timeval *a, const struct timeval *b)
@@ -367,7 +380,8 @@ int rx_callback(airspy_transfer_t* transfer)
 	struct timeval time_now;
 	float time_difference, rate;
 
-	if( fd != NULL ) 
+	nrx_callbacks++;
+    if( fd != NULL ) 
 	{
 		switch(sample_type_val)
 		{
@@ -448,7 +462,8 @@ int rx_callback(airspy_transfer_t* transfer)
 
 		if(pt_rx_buffer != NULL)
 		{
-			bytes_written = fwrite(pt_rx_buffer, 1, bytes_to_write, fd);
+			/*  bytes_written = fwrite(pt_rx_buffer, 1, bytes_to_write, fd); */
+            bytes_written = rx_write_data(pt_rx_buffer, bytes_to_write, rxd_ipc);
 		}else
 		{
 			bytes_written = 0;
@@ -463,6 +478,127 @@ int rx_callback(airspy_transfer_t* transfer)
 	{
 		return -1;
 	}
+}
+
+
+
+int rx_ipc(airspy_ipc_t **rxd_ipc, int *semid)
+{
+    key_t ipc_key;
+    int shmid, sid;
+    union semun arg;
+
+    /* get the ipc key */
+    if ((ipc_key = ftok(IPC_Path, IPC_Proj)) == (key_t) -1) errExit("ftok");
+
+    shmid = shmget(ipc_key, sizeof(airspy_ipc_t), IPC_CREAT|0600);
+    if (shmid == -1) errExit("shmget");
+
+    *rxd_ipc = (airspy_ipc_t*)shmat(shmid, NULL, 0);
+    if (*rxd_ipc == (airspy_ipc_t*)(-1))
+    {
+        errExit("shmat");
+    }
+    /* zero out the segment in case left over from previous instance */
+    memset(*rxd_ipc, 0, sizeof(airspy_ipc_t));
+
+    (*rxd_ipc)->rx_pid = getpid();
+
+    /* create & set the ipc semaphore */
+    sid = semget(ipc_key, 1, IPC_CREAT|0600);
+    if (sid == -1) errExit("semget");
+    arg.val = 0;
+    if (semctl(sid, 0, SETVAL, arg) == -1)
+        errExit("semctl");
+    *semid = sid;
+
+    return AIRSPY_SUCCESS;
+
+}
+
+int rx_openfd(char *dirname, char *rootname)
+{
+    int fd;
+    char path[FILENAME_MAX];
+    time_t rawtime;
+    struct tm * timeinfo;
+    char date_time[DATE_TIME_MAX_LEN];
+    DIR *dir;
+
+    /* create the directory if needed */
+    dir = opendir(dirname);
+    if (!dir) {
+        if (errno != ENOENT) errExit("Directory exists");
+        if (mkdir(dirname, 0777) < 0 ) errExit("mkdir");
+    }
+
+    /* make the file name */
+    time (&rawtime);
+    timeinfo = localtime (&rawtime);
+    /* file name format: <dirname>/<rootname>_<date_time>.wav */
+    strftime(date_time, DATE_TIME_MAX_LEN, "%Y%m%d_%H%M%S", timeinfo);
+    snprintf(path, PATH_FILE_MAX_LEN, "%s/%s_%s.wav", dirname, rootname, date_time);
+
+    /* what happened to O_TMPFILE semantics? */
+    fd = open(path, O_CREAT|O_RDWR, 0666);
+    if (fd < 0) errExit("open");
+
+    /* write the dummy wave header */
+    if (write(fd, &wave_file_hdr, sizeof(t_wav_file_hdr)) != sizeof(t_wav_file_hdr)){
+        errExit("Wav file hdr write");
+    }
+
+    return fd;
+}
+
+int rx_closefd(int fd)
+{
+    close(fd);
+    return -1;
+}
+
+int rx_write_data(void* rx_buf, u_int32_t bytes_to_write, airspy_ipc_t *rx_ipc)
+{
+    ssize_t bytes_written;
+    static int rxfd = -1;
+    struct sembuf sop;
+    static int32_t blocks_remaining;
+
+    /* use bytes_written == -1 as general error return value */
+    if (!airspy_daemon)
+    {
+        bytes_written = fwrite(rx_buf, 1, bytes_to_write, fd);
+    } else
+    {
+        /* wait for semaphore */
+        sop.sem_num = 0;
+        sop.sem_op = 0;
+        sop.sem_flg = 0;
+        if (semop(rxd_semid, &sop, 1) == -1) {
+            errExit("semop1");
+        }
+
+        if (rx_ipc->nblocks > 0) /* we need to write data */
+        {
+            if (rxfd < 0){
+                rxfd = rx_openfd(rx_ipc->dirname, rx_ipc->filename);
+                blocks_remaining = rx_ipc->nblocks;
+            }
+
+            bytes_written = write(rxfd, rx_buf, bytes_to_write);
+            blocks_remaining--;
+
+            if (blocks_remaining == 0){
+                rxfd = rx_closefd(rxfd);
+                if (rxfd != -1) bytes_written = -1;
+            }
+        } else /* pretend we did something useful */
+        {
+            if (rxfd >0) rx_closefd(rxfd);
+            bytes_written = bytes_to_write;
+        } 
+    }
+    return bytes_written;
 }
 
 static void usage(void)
@@ -487,6 +623,7 @@ static void usage(void)
 	printf("[-g linearity_gain]: Set linearity simplified gain, 0-%d\n", LINEARITY_GAIN_MAX);
 	printf("[-h sensivity_gain]: Set sensitivity simplified gain, 0-%d\n", SENSITIVITY_GAIN_MAX);
 	printf("[-n num_samples]: Number of samples to transfer (default is unlimited)\n");
+    printf("[-z run as daemon\n");
 	printf("[-d]: Verbose mode\n");
 }
 
@@ -511,12 +648,11 @@ void sigint_callback_handler(int signum)
 }
 #endif
 
-#define PATH_FILE_MAX_LEN (FILENAME_MAX)
-#define DATE_TIME_MAX_LEN (32)
+
 
 int main(int argc, char** argv)
 {
-	int opt;
+	int opt, pid;
 	char path_file[PATH_FILE_MAX_LEN];
 	char date_time[DATE_TIME_MAX_LEN];
 	t_u64toa ascii_u64_data1;
@@ -538,7 +674,7 @@ int main(int argc, char** argv)
 	double freq_hz_temp;
 	char str[20];
 
-	while( (opt = getopt(argc, argv, "r:ws:p:f:a:t:b:v:m:l:g:h:n:d")) != EOF )
+	while( (opt = getopt(argc, argv, "r:ws:p:f:a:t:b:v:m:l:g:h:n:zd")) != EOF )
 	{
 		result = AIRSPY_SUCCESS;
 		switch( opt ) 
@@ -681,6 +817,10 @@ int main(int argc, char** argv)
 			case 'd':
 				verbose = true;
 			break;
+
+            case 'z':
+                airspy_daemon = true;
+            break;
 
 			default:
 				printf("unknown argument '-%c %s'\n", opt, optarg);
@@ -848,6 +988,33 @@ int main(int argc, char** argv)
 							u64toa((samples_to_xfer/FREQ_ONE_MHZ), &ascii_u64_data2));
 		}
 	}
+
+    /* turn into  a daemon process if requested */
+    if (airspy_daemon){
+        /*
+        pid = fork();
+        if (pid == -1) {
+            perror('Unable to fork');
+            return EXIT_FAILURE;
+        }
+        if (pid > 0) {
+            printf("Child daemon process forked; pid: %d\n", pid);
+            return EXIT_SUCCESS;
+        } else
+        */
+        {
+            /* in the daemon; set up the ipc */
+            limit_num_samples = false;
+            result = rx_ipc(&rxd_ipc, &rxd_semid);
+            if (result != AIRSPY_SUCCESS)
+            {
+                fprintf(stderr, "Daemon process unable to set up IPC channel\n");
+                return EXIT_FAILURE;
+            }
+
+        }
+
+    }
 
 	result = airspy_init();
 	if( result != AIRSPY_SUCCESS ) {
@@ -1028,6 +1195,7 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
+
 	result = airspy_start_rx(device, rx_callback, NULL);
 	if( result != AIRSPY_SUCCESS ) {
 		printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
@@ -1110,6 +1278,7 @@ int main(int argc, char** argv)
 		fclose(fd);
 		fd = NULL;
 	}
+    printf("Number of Rx Callbacks: %ld\n",nrx_callbacks);
 	printf("done\n");
 	return exit_code;
 }
