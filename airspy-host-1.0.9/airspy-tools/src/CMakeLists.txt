@@ -62,7 +62,7 @@ install(TARGETS airspy_reader RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 add_executable(airspy_rxmon airspy_rxmon.c)
 install(TARGETS airspy_rxmon RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 
-add_executable(readwav_hdr readwav_hdr.c)
+add_executable(readwav_hdr readwav_hdr.c )
 install(TARGETS airspy_reader RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 
 if(NOT libairspy_SOURCE_DIR)

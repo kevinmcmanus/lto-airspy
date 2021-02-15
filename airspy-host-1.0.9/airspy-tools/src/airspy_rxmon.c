@@ -152,8 +152,7 @@ int main(int argc, char **argv)
 
     } else {
         as_ipc->nblocks = 0;
-        *(as_ipc->dirname) = '\0';
-        *(as_ipc->filename) = '\0';
+
     }
 
     /*release the semaphore */

@@ -129,6 +129,7 @@ typedef struct {
 typedef struct {
 	uint32_t part_id[2];
 	uint32_t serial_no[4];
+
 } airspy_read_partid_serialno_t;
 
 typedef struct {

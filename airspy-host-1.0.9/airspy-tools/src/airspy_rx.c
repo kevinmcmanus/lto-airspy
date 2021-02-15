@@ -516,7 +516,7 @@ int rx_ipc(airspy_ipc_t **rxd_ipc, int *semid)
 
 }
 
-int rx_openfd(char *dirname, char *rootname)
+int rx_openfd(char *dirname, char *rootname, char *fname)
 {
     int fd;
     char path[FILENAME_MAX];
@@ -535,9 +535,11 @@ int rx_openfd(char *dirname, char *rootname)
     /* make the file name */
     time (&rawtime);
     timeinfo = localtime (&rawtime);
-    /* file name format: <dirname>/<rootname>_<date_time>.wav */
+    /* file name format: <dirname>/.<rootname>_<date_time>.wav */
+    /* leading dot to make file invisible. removed when closed */
     strftime(date_time, DATE_TIME_MAX_LEN, "%Y%m%d_%H%M%S", timeinfo);
-    snprintf(path, PATH_FILE_MAX_LEN, "%s/%s_%s.wav", dirname, rootname, date_time);
+    snprintf(fname, PATH_FILE_MAX_LEN, ".%s_%s.wav",rootname, date_time);
+    snprintf(path, PATH_FILE_MAX_LEN, "%s/%s", dirname, fname);
 
     /* what happened to O_TMPFILE semantics? */
     fd = open(path, O_CREAT|O_RDWR, 0666);
@@ -551,9 +553,37 @@ int rx_openfd(char *dirname, char *rootname)
     return fd;
 }
 
-int rx_closefd(int fd)
+int rx_closefd(int fd, char *dirname, char *fname)
 {
+    char old_name[FILENAME_MAX], new_name[FILENAME_MAX];
+    off_t file_pos;
+
+    /* fix up the wav header */
+    /* Get size of file */
+    file_pos = lseek(fd, 0, SEEK_CUR);
+    /* Wav Header */
+    wave_file_hdr.hdr.size = file_pos - 8;
+    /* Wav Format Chunk */
+    wave_file_hdr.fmt_chunk.wFormatTag = wav_format_tag;
+    wave_file_hdr.fmt_chunk.wChannels = wav_nb_channels;
+    wave_file_hdr.fmt_chunk.dwSamplesPerSec = wav_sample_per_sec;
+    wave_file_hdr.fmt_chunk.dwAvgBytesPerSec = wave_file_hdr.fmt_chunk.dwSamplesPerSec * wav_nb_byte_per_sample;
+    wave_file_hdr.fmt_chunk.wBlockAlign = wav_nb_channels * (wav_nb_bits_per_sample / 8);
+    wave_file_hdr.fmt_chunk.wBitsPerSample = wav_nb_bits_per_sample;
+    /* Wav Data Chunk */
+    wave_file_hdr.data_chunk.chunkSize = file_pos - sizeof(t_wav_file_hdr);
+    /* Overwrite header with updated data */
+    lseek(fd, 0, SEEK_SET);
+    if (write(fd, &wave_file_hdr,sizeof(t_wav_file_hdr)) != sizeof(t_wav_file_hdr)) errExit("wav hdr");
+
     close(fd);
+
+    /* make the file visible */
+    sprintf(old_name, "%s/%s", dirname, fname); //with dot
+    sprintf(new_name, "%s/%s", dirname, fname+1);  //sans dot
+    if (link(old_name, new_name) < 0) errExit(old_name); 
+    if (unlink(old_name) < 0) errExit("unlink");
+
     return -1;
 }
 
@@ -563,6 +593,7 @@ int rx_write_data(void* rx_buf, u_int32_t bytes_to_write, airspy_ipc_t *rx_ipc)
     static int rxfd = -1;
     struct sembuf sop;
     static int32_t blocks_remaining;
+    static char fname[FILENAME_MAX];
 
     /* use bytes_written == -1 as general error return value */
     if (!airspy_daemon)
@@ -581,7 +612,7 @@ int rx_write_data(void* rx_buf, u_int32_t bytes_to_write, airspy_ipc_t *rx_ipc)
         if (rx_ipc->nblocks > 0) /* we need to write data */
         {
             if (rxfd < 0){
-                rxfd = rx_openfd(rx_ipc->dirname, rx_ipc->filename);
+                rxfd = rx_openfd(rx_ipc->dirname, rx_ipc->filename, fname);
                 blocks_remaining = rx_ipc->nblocks;
             }
 
@@ -589,12 +620,12 @@ int rx_write_data(void* rx_buf, u_int32_t bytes_to_write, airspy_ipc_t *rx_ipc)
             blocks_remaining--;
 
             if (blocks_remaining == 0){
-                rxfd = rx_closefd(rxfd);
+                rxfd = rx_closefd(rxfd, rx_ipc->dirname, fname);
                 if (rxfd != -1) bytes_written = -1;
             }
         } else /* pretend we did something useful */
         {
-            if (rxfd >0) rx_closefd(rxfd);
+            if (rxfd >0) rxfd = rx_closefd(rxfd, rx_ipc->dirname, fname);
             bytes_written = bytes_to_write;
         } 
     }

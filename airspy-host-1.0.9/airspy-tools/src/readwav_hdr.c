@@ -1,5 +1,4 @@
 
-#include <airspy.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +12,13 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <limits.h>
+
+#include "svshm_string.h"
+#include <airspy.h>
+
+# define AT_FDCWD		-100
+#  define AT_EMPTY_PATH		0x1000	/* Allow empty relative pathname.  */
+# define AT_SYMLINK_FOLLOW 0x400   /* Follow symbolic links.  */
 
 typedef struct 
 {
@@ -70,6 +76,7 @@ void tohex(unsigned char * in, size_t insz, char * out, size_t outsz)
     }
     pout[-1] = 0;
 }
+extern int doit(char *str);
 
 int main(int argc, char **argv)
 {
@@ -85,7 +92,7 @@ int main(int argc, char **argv)
     memset(iq_data, 0x13, sizeof(iq_data));
 
     fd = open(argv[1], O_RDONLY);
-    if (!fd) {
+    if (fd <0) {
         fprintf(stderr,"No such file: %s\n", argv[1]);
         exit(-1);
     }
