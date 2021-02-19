@@ -103,15 +103,6 @@ union semun {
 };
 */
 
-/* IPC Keys */
-#define IPC_Path "/tmp"
-#define IPC_Proj ((int) 'L') /* as in LTO */
-typedef struct {
-    pid_t rx_pid;
-    int32_t nblocks;
-    char dirname[FILENAME_MAX];
-    char filename[FILENAME_MAX];
-} airspy_ipc_t;
 
 #define MAX_CONFIG_PAGE_SIZE (0x10000)
 

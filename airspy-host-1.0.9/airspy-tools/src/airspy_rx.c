@@ -37,6 +37,7 @@
 #include "svshm_string.h"
 
 #include <airspy.h>
+#include <wav.h>
 
 #define AIRSPY_RX_VERSION "1.0.5 23 April 2016"
 
@@ -129,68 +130,6 @@ int gettimeofday(struct timeval *tv, void* ignored)
 #define PATH_FILE_MAX_LEN (FILENAME_MAX)
 #define DATE_TIME_MAX_LEN (32)
 
-/* WAVE or RIFF WAVE file format containing data for AirSpy compatible with SDR# Wav IQ file */
-typedef struct 
-{
-		char groupID[4]; /* 'RIFF' */
-		uint32_t size; /* File size + 8bytes */
-		char riffType[4]; /* 'WAVE'*/
-} t_WAVRIFF_hdr;
-
-#define FormatID "fmt "   /* chunkID for Format Chunk. NOTE: There is a space at the end of this ID. */
-
-typedef struct {
-	char chunkID[4]; /* 'fmt ' */
-	uint32_t chunkSize; /* 16 fixed */
-
-	uint16_t wFormatTag; /* 1=PCM8/16, 3=Float32 */
-	uint16_t wChannels;
-	uint32_t dwSamplesPerSec; /* Freq Hz sampling */
-	uint32_t dwAvgBytesPerSec; /* Freq Hz sampling x 2 */
-	uint16_t wBlockAlign;
-	uint16_t wBitsPerSample;
-} t_FormatChunk;
-
-typedef struct 
-{
-		char chunkID[4]; /* 'data' */
-		uint32_t chunkSize; /* Size of data in bytes */
-	/* For IQ samples I(16 or 32bits) then Q(16 or 32bits), I, Q ... */
-} t_DataChunk;
-
-typedef struct
-{
-	t_WAVRIFF_hdr hdr;
-	t_FormatChunk fmt_chunk;
-	t_DataChunk data_chunk;
-} t_wav_file_hdr;
-
-t_wav_file_hdr wave_file_hdr = 
-{
-	/* t_WAVRIFF_hdr */
-	{
-		{ 'R', 'I', 'F', 'F' }, /* groupID */
-		0, /* size to update later */
-		{ 'W', 'A', 'V', 'E' }
-	},
-	/* t_FormatChunk */
-	{
-		{ 'f', 'm', 't', ' ' }, /* char		chunkID[4];  */
-		16, /* uint32_t chunkSize; */
-		0, /* uint16_t wFormatTag; to update later */
-		0, /* uint16_t wChannels; to update later */
-		0, /* uint32_t dwSamplesPerSec; Freq Hz sampling to update later */
-		0, /* uint32_t dwAvgBytesPerSec; to update later */
-		0, /* uint16_t wBlockAlign; to update later */
-		0, /* uint16_t wBitsPerSample; to update later  */
-	},
-	/* t_DataChunk */
-	{
-		{ 'd', 'a', 't', 'a' }, /* char chunkID[4]; */
-		0, /* uint32_t	chunkSize; to update later */
-	}
-};
-
 #define U64TOA_MAX_DIGIT (31)
 typedef struct 
 {
@@ -220,7 +159,9 @@ airspy_read_partid_serialno_t read_partid_serialno;
 
 volatile bool do_exit = false;
 
+#ifdef _RAWSUPPORT
 FILE* fd = NULL;
+#endif
 
 bool verbose = false;
 bool receive = false;
@@ -260,9 +201,6 @@ uint32_t biast_val;
 bool serial_number = false;
 uint64_t serial_number_val;
 
-/*ipc globals */
-int rxd_semid;
-airspy_ipc_t *rxd_ipc;
 
 static float
 TimevalDiff(const struct timeval *a, const struct timeval *b)
@@ -381,8 +319,10 @@ int rx_callback(airspy_transfer_t* transfer)
 	float time_difference, rate;
 
 	nrx_callbacks++;
+#ifdef _RAWSUPPORT
     if( fd != NULL ) 
 	{
+#endif
 		switch(sample_type_val)
 		{
 			case AIRSPY_SAMPLE_FLOAT32_IQ:
@@ -463,7 +403,7 @@ int rx_callback(airspy_transfer_t* transfer)
 		if(pt_rx_buffer != NULL)
 		{
 			/*  bytes_written = fwrite(pt_rx_buffer, 1, bytes_to_write, fd); */
-            bytes_written = rx_write_data(pt_rx_buffer, bytes_to_write, rxd_ipc);
+            bytes_written = wav_write(WAV_PROC_TYPE_DAEMON, pt_rx_buffer, bytes_to_write);
 		}else
 		{
 			bytes_written = 0;
@@ -474,163 +414,18 @@ int rx_callback(airspy_transfer_t* transfer)
 			return -1;
 		else
 			return 0;
-	}else
+    }
+#ifdef _RAWSUPPORT
+	else
 	{
 		return -1;
 	}
 }
+#endif
 
 
 
-int rx_ipc(airspy_ipc_t **rxd_ipc, int *semid)
-{
-    key_t ipc_key;
-    int shmid, sid;
-    union semun arg;
 
-    /* get the ipc key */
-    if ((ipc_key = ftok(IPC_Path, IPC_Proj)) == (key_t) -1) errExit("ftok");
-
-    shmid = shmget(ipc_key, sizeof(airspy_ipc_t), IPC_CREAT|0600);
-    if (shmid == -1) errExit("shmget");
-
-    *rxd_ipc = (airspy_ipc_t*)shmat(shmid, NULL, 0);
-    if (*rxd_ipc == (airspy_ipc_t*)(-1))
-    {
-        errExit("shmat");
-    }
-    /* zero out the segment in case left over from previous instance */
-    memset(*rxd_ipc, 0, sizeof(airspy_ipc_t));
-
-    (*rxd_ipc)->rx_pid = getpid();
-
-    /* create & set the ipc semaphore */
-    sid = semget(ipc_key, 1, IPC_CREAT|0600);
-    if (sid == -1) errExit("semget");
-    arg.val = 0;
-    if (semctl(sid, 0, SETVAL, arg) == -1)
-        errExit("semctl");
-    *semid = sid;
-
-    return AIRSPY_SUCCESS;
-
-}
-
-int rx_openfd(char *dirname, char *rootname, char *fname)
-{
-    int fd;
-    char path[FILENAME_MAX];
-    time_t rawtime;
-    struct tm * timeinfo;
-    char date_time[DATE_TIME_MAX_LEN];
-    DIR *dir;
-
-    /* create the directory if needed */
-    dir = opendir(dirname);
-    if (!dir) {
-        if (errno != ENOENT) errExit("Directory exists");
-        if (mkdir(dirname, 0777) < 0 ) errExit("mkdir");
-    }
-
-    /* make the file name */
-    time (&rawtime);
-    timeinfo = localtime (&rawtime);
-    /* file name format: <dirname>/.<rootname>_<date_time>.wav */
-    /* leading dot to make file invisible. removed when closed */
-    strftime(date_time, DATE_TIME_MAX_LEN, "%Y%m%d_%H%M%S", timeinfo);
-    snprintf(fname, PATH_FILE_MAX_LEN, ".%s_%s.wav",rootname, date_time);
-    snprintf(path, PATH_FILE_MAX_LEN, "%s/%s", dirname, fname);
-
-    /* what happened to O_TMPFILE semantics? */
-    fd = open(path, O_CREAT|O_RDWR, 0666);
-    if (fd < 0) errExit("open");
-
-    /* write the dummy wave header */
-    if (write(fd, &wave_file_hdr, sizeof(t_wav_file_hdr)) != sizeof(t_wav_file_hdr)){
-        errExit("Wav file hdr write");
-    }
-
-    return fd;
-}
-
-int rx_closefd(int fd, char *dirname, char *fname)
-{
-    char old_name[FILENAME_MAX], new_name[FILENAME_MAX];
-    off_t file_pos;
-
-    /* fix up the wav header */
-    /* Get size of file */
-    file_pos = lseek(fd, 0, SEEK_CUR);
-    /* Wav Header */
-    wave_file_hdr.hdr.size = file_pos - 8;
-    /* Wav Format Chunk */
-    wave_file_hdr.fmt_chunk.wFormatTag = wav_format_tag;
-    wave_file_hdr.fmt_chunk.wChannels = wav_nb_channels;
-    wave_file_hdr.fmt_chunk.dwSamplesPerSec = wav_sample_per_sec;
-    wave_file_hdr.fmt_chunk.dwAvgBytesPerSec = wave_file_hdr.fmt_chunk.dwSamplesPerSec * wav_nb_byte_per_sample;
-    wave_file_hdr.fmt_chunk.wBlockAlign = wav_nb_channels * (wav_nb_bits_per_sample / 8);
-    wave_file_hdr.fmt_chunk.wBitsPerSample = wav_nb_bits_per_sample;
-    /* Wav Data Chunk */
-    wave_file_hdr.data_chunk.chunkSize = file_pos - sizeof(t_wav_file_hdr);
-    /* Overwrite header with updated data */
-    lseek(fd, 0, SEEK_SET);
-    if (write(fd, &wave_file_hdr,sizeof(t_wav_file_hdr)) != sizeof(t_wav_file_hdr)) errExit("wav hdr");
-
-    close(fd);
-
-    /* make the file visible */
-    sprintf(old_name, "%s/%s", dirname, fname); //with dot
-    sprintf(new_name, "%s/%s", dirname, fname+1);  //sans dot
-    if (link(old_name, new_name) < 0) errExit(old_name); 
-    if (unlink(old_name) < 0) errExit("unlink");
-
-    return -1;
-}
-
-int rx_write_data(void* rx_buf, u_int32_t bytes_to_write, airspy_ipc_t *rx_ipc)
-{
-    ssize_t bytes_written;
-    static int rxfd = -1;
-    struct sembuf sop;
-    static int32_t blocks_remaining;
-    static char fname[FILENAME_MAX];
-
-    /* use bytes_written == -1 as general error return value */
-    if (!airspy_daemon)
-    {
-        bytes_written = fwrite(rx_buf, 1, bytes_to_write, fd);
-    } else
-    {
-        /* wait for semaphore */
-        sop.sem_num = 0;
-        sop.sem_op = 0;
-        sop.sem_flg = 0;
-        if (semop(rxd_semid, &sop, 1) == -1) {
-            errExit("semop1");
-        }
-
-        if (rx_ipc->nblocks > 0) /* we need to write data */
-        {
-            if (rxfd < 0){
-                rxfd = rx_openfd(rx_ipc->dirname, rx_ipc->filename, fname);
-                blocks_remaining = rx_ipc->nblocks;
-            }
-
-            bytes_written = write(rxfd, rx_buf, bytes_to_write);
-            blocks_remaining--;
-
-            if (blocks_remaining == 0){
-                rxfd = rx_closefd(rxfd, rx_ipc->dirname, fname);
-                if (rxfd != -1) bytes_written = -1;
-            }
-        } else /* pretend we did something useful */
-        {
-            if (rxfd >0) rxfd = rx_closefd(rxfd, rx_ipc->dirname, fname);
-            bytes_written = bytes_to_write;
-        } 
-    }
-    return bytes_written;
-}
 
 static void usage(void)
 {
@@ -683,18 +478,18 @@ void sigint_callback_handler(int signum)
 
 int main(int argc, char** argv)
 {
-	int opt, pid;
+	int opt;
 	char path_file[PATH_FILE_MAX_LEN];
 	char date_time[DATE_TIME_MAX_LEN];
 	t_u64toa ascii_u64_data1;
 	t_u64toa ascii_u64_data2;
 	const char* path = NULL;
 	int result;
+    wav_handle_t wav_result;
 	time_t rawtime;
 	struct tm * timeinfo;
 	struct timeval t_end;
 	float time_diff;
-	uint32_t file_pos;
 	int exit_code = EXIT_SUCCESS;
 
 	uint32_t count;
@@ -1020,32 +815,6 @@ int main(int argc, char** argv)
 		}
 	}
 
-    /* turn into  a daemon process if requested */
-    if (airspy_daemon){
-        /*
-        pid = fork();
-        if (pid == -1) {
-            perror('Unable to fork');
-            return EXIT_FAILURE;
-        }
-        if (pid > 0) {
-            printf("Child daemon process forked; pid: %d\n", pid);
-            return EXIT_SUCCESS;
-        } else
-        */
-        {
-            /* in the daemon; set up the ipc */
-            limit_num_samples = false;
-            result = rx_ipc(&rxd_ipc, &rxd_semid);
-            if (result != AIRSPY_SUCCESS)
-            {
-                fprintf(stderr, "Daemon process unable to set up IPC channel\n");
-                return EXIT_FAILURE;
-            }
-
-        }
-
-    }
 
 	result = airspy_init();
 	if( result != AIRSPY_SUCCESS ) {
@@ -1150,6 +919,7 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
+#ifdef _RAWSUPPORT
 	fd = fopen(path, "wb");
 	if( fd == NULL ) {
 		printf("Failed to open file: %s\n", path);
@@ -1171,6 +941,7 @@ int main(int argc, char** argv)
 	{
 		fwrite(&wave_file_hdr, 1, sizeof(t_wav_file_hdr), fd);
 	}
+#endif
 	
 #ifdef _MSC_VER
 	SetConsoleCtrlHandler( (PHANDLER_ROUTINE) sighandler, TRUE );
@@ -1226,6 +997,38 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
+    /* turn into  a daemon process if requested */
+    if (airspy_daemon){
+        /*
+        pid = fork();
+        if (pid == -1) {
+            perror('Unable to fork');
+            return EXIT_FAILURE;
+        }
+        if (pid > 0) {
+            printf("Child daemon process forked; pid: %d\n", pid);
+            return EXIT_SUCCESS;
+        } else
+        */
+        {
+            /* in the daemon; set up the wav & ipc */
+            limit_num_samples = false;
+            wav_result = wav_init(WAV_PROC_TYPE_DAEMON,
+                            wav_format_tag,
+                            freq_hz,
+                            wav_nb_channels,
+                            wav_sample_per_sec,
+                            wav_nb_byte_per_sample,
+                            wav_nb_bits_per_sample);
+            if (wav_error(wav_result))
+            {
+                fprintf(stderr, "Daemon process unable to set up IPC channel\n");
+                return EXIT_FAILURE;
+            }
+
+        }
+
+    }
 
 	result = airspy_start_rx(device, rx_callback, NULL);
 	if( result != AIRSPY_SUCCESS ) {
@@ -1246,7 +1049,7 @@ int main(int argc, char** argv)
 		float average_rate_now = average_rate * 1e-6f;
 		sprintf(str, "%2.3f", average_rate_now);
 		average_rate_now = 9.5f;
-		printf("Streaming at %5s MSPS\n", str);
+		if (verbose) printf("Streaming at %5s MSPS\n", str);
 		if ((limit_num_samples == true) && (bytes_to_xfer == 0))
 			do_exit = true;
 		else
@@ -1284,7 +1087,8 @@ int main(int argc, char** argv)
 		
 		airspy_exit();
 	}
-		
+
+    #ifdef _RAWSUPPORT	
 	if(fd != NULL)
 	{
 		if( receive_wav ) 
@@ -1309,6 +1113,8 @@ int main(int argc, char** argv)
 		fclose(fd);
 		fd = NULL;
 	}
+    #endif
+
     printf("Number of Rx Callbacks: %ld\n",nrx_callbacks);
 	printf("done\n");
 	return exit_code;

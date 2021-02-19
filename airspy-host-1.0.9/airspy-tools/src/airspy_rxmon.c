@@ -16,9 +16,10 @@
 #include "svshm_string.h"
 
 #include <airspy.h>
+#include <wav.h>
 
 #define AIRSPY_RXMON_VERSION "0.1.0 19 January 2021"
-#define AIRSPY_RXMON_DEFAULT_ROOT "rxmon"
+#define AIRSPY_RXMON_DEFAULT_ROOT "Airspy"
 
 #define PATH_FILE_MAX_LEN (FILENAME_MAX)
 #define DATE_TIME_MAX_LEN (32)
