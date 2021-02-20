@@ -141,7 +141,7 @@ wav_handle_t wav_init(enum wav_proc_type proc_type,
     return WAV_HANDLE_INACTIVE_VAL; //inactive but valid
 }
 
-wav_handle_t wav_open(char *dirname, char *rootname)
+wav_handle_t wav_creat(char *dirname, char *rootname)
 {
     char path[PATH_MAX];
     time_t rawtime;
@@ -166,15 +166,11 @@ wav_handle_t wav_open(char *dirname, char *rootname)
     /* make the file name */
     time (&rawtime);
     timeinfo = localtime (&rawtime);
-    /* file name format: <dirname>/.<rootname>_<date_time>.wav */
-    /* leading dot to make file invisible. removed when closed */
+    /* file name format: <dirname>/<rootname>_<date_time>.wav */
     strftime(date_time, DATE_TIME_MAX_LEN, "%Y%m%d_%H%M%S", timeinfo);
-    snprintf(wav_filename, PATH_MAX, ".%s_%sZ_%ukHz_IQ.wav",rootname, date_time,(uint32_t)(wav_freq_hz/(1000ull)));
+    snprintf(wav_filename, PATH_MAX, "%s_%sZ_%ukHz_IQ.wav",rootname, date_time,(uint32_t)(wav_freq_hz/(1000ull)));
 
-    snprintf(path, PATH_MAX, "%s/%s", wav_dirname, wav_filename);
-
-    /* what happened to O_TMPFILE semantics? */
-    wav_fd = open(path, O_CREAT|O_RDWR, 0666);
+    wav_fd = open(wav_dirname, __O_TMPFILE|O_RDWR, 0666);
     if (wav_fd < 0) {
         perror("open");
         return WAV_ERROR_VAL;
@@ -191,7 +187,7 @@ wav_handle_t wav_open(char *dirname, char *rootname)
 
 wav_handle_t wav_close(wav_handle_t hndl)
 {
-    char old_name[FILENAME_MAX], new_name[FILENAME_MAX];
+    char old_path[PATH_MAX], new_path[PATH_MAX];
     off_t file_pos;
     t_wav_file_hdr wav_hdr;
 
@@ -209,14 +205,15 @@ wav_handle_t wav_close(wav_handle_t hndl)
     lseek(wav_fd, 0, SEEK_SET);
     if (write(wav_fd, &wav_hdr,sizeof(t_wav_file_hdr)) != sizeof(t_wav_file_hdr)) errExit("wav hdr");
 
-    close(wav_fd);
-
     /* make the file visible */
-    sprintf(old_name, "%s/%s", wav_dirname, wav_filename); //with dot
-    sprintf(new_name, "%s/%s", wav_dirname, wav_filename+1);  //sans dot
-    if (link(old_name, new_name) < 0) errExit(old_name); 
-    if (unlink(old_name) < 0) errExit("unlink");
+    snprintf(old_path, PATH_MAX, "/proc/self/fd/%d", wav_fd);
+    snprintf(new_path, PATH_MAX,  "%s/%s", wav_dirname, wav_filename);
+    if (linkat(AT_FDCWD, old_path, AT_FDCWD, new_path, AT_SYMLINK_FOLLOW) < 0) {
+        perror("linkat");
+        return WAV_ERROR_VAL;
+    }
 
+    close(wav_fd);
     wav_fd = -1;
 
     return WAV_HANDLE_INACTIVE_VAL;
@@ -246,7 +243,7 @@ int wav_write(enum wav_proc_type proc_type, void* rx_buf, u_int32_t bytes_to_wri
         if (rxd_ipc->nblocks > 0) /* we need to write data */
         {
             if (wav_fd < 0){
-                current_handle = wav_open(rxd_ipc->dirname, rxd_ipc->filename);
+                current_handle = wav_creat(rxd_ipc->dirname, rxd_ipc->filename);
                 if (wav_error(current_handle)) return -1;
                 blocks_remaining = rxd_ipc->nblocks;
             }

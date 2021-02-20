@@ -92,6 +92,6 @@ extern ADDAPI wav_handle_t ADDCALL wav_init(enum wav_proc_type proc_type,
                                     uint16_t byte_per_sample,
                                     uint16_t bits_per_sample);
 
-extern ADDAPI wav_handle_t ADDCALL wav_open(char *dirname, char *rootname);
+extern ADDAPI wav_handle_t ADDCALL wav_creat(char *dirname, char *rootname);
 extern ADDAPI wav_handle_t ADDCALL wav_close(wav_handle_t);
 extern ADDAPI int32_t ADDCALL wav_write(enum wav_proc_type proc_type, void* rx_buf, u_int32_t bytes_to_write);
