@@ -9,7 +9,7 @@
         "type": "cppdbg",
         "request": "launch",
         "program": "${workspaceFolder}/build/airspy-tools/src/airspy_rxmon",
-        "args": ["off", "-d", "data.out"],
+        "args": ["start", "-d", "data.out"],
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}/build/airspy-tools/src",
         "environment": [],

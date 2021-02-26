@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
@@ -24,7 +25,7 @@
 #define PATH_FILE_MAX_LEN (FILENAME_MAX)
 #define DATE_TIME_MAX_LEN (32)
 
-//spme error handling macros
+//some error handling macros
 char err_buf[PATH_FILE_MAX_LEN];
 #define errSysError(str) {snprintf(err_buf, PATH_FILE_MAX_LEN, "%s: %s\n", str, strerror(errno));}
 #define errReturn(str) { errSysError(str); return(-1);}
@@ -37,9 +38,12 @@ static void usage()
 {
 	printf("airspy_rxmon v%s\n", AIRSPY_RXMON_VERSION);
 	printf("Usage:\n");
-    printf("ON|OFF: turns monitoring on or off\n");
-	printf("-r <root filename>: root name for received data files\n");
-	printf("-d <directory_path>: Place received files into this directory\n");
+    printf("  airspy_rxmon start <airspy_rx options> # starts airspy_rx as daemon\n\n");
+	printf("  airspy_rxmon kill # terminates currently running airspy_rx\n\n");
+	printf("  airspy_rxmon status # displays current airspy_rx status\n\n");
+    printf("  airspy_rxmon on -d <directory> -f <filename_root> -n <nblocks per file> # starts data recording\n\n");
+    printf("  airspy_rxmon off # ends data recording\n\n");
+    printf("  airspy_rxmon help # displays this message\n");
 
 }
 
@@ -199,6 +203,57 @@ int kill_command(char *cmd, int argc, char **argv){
     return(0);
 
 }
+int start_command(char *cmd, int argc, char **argv){
+    char *pgrmargv[128], **pargv;
+    char *pgrm = "airspy_rx"; //default program to start
+    int i, pid;
+    char procpath[512];
+    struct stat statbuf;
+
+    /* make sure not already running */
+    if (setup_ipc() == 0){
+        //either already running or remnant
+        sprintf(procpath,"/proc/%d",as_ipc->rx_pid);
+        //remnant if stat() fails
+        if (stat(procpath, &statbuf)>=0) errAugReturn("airspy_rx currently running");
+    } else {
+        errFlush;
+    }
+
+    /* did we get a specific program to start? */
+    pargv = &pgrmargv[1];
+    i = 2;
+    while (i < argc){
+        if (!strcmp(argv[i],"-z")) {
+            /* basic sanity checks on program name */
+            if (++i == argc) errAugReturn("missing program name argument to -z option");
+            if (argv[i][0] == '-') errAugReturn("invalid program name arguement to -z option");
+            pgrm = argv[i];
+        } else {
+            *(pargv++) = argv[i];
+        }
+        i++;
+    }
+    /* tack on a '-z' and null terminate the list */
+    *(pargv++) = "-z";
+    *pargv = NULL;
+    /* program name at beginning of list */
+    pgrmargv[0] = pgrm;
+
+    if ((pid = fork())<0) errSysError("fork");
+    if (pid == 0) {
+        if (execvp(pgrm, pgrmargv) <0) {;
+            errSysError("Failed execvp")
+            errPrint;
+            exit(-1);
+        }
+        fprintf(stderr,"how'd we get here?\n");   
+    }
+
+    printf("Attempting to start %s, pid: %d\n", pgrm, pid);
+
+    return(0);
+}
 
 int help_command(char *cmd, int argc, char **argv){
     usage();
@@ -226,7 +281,7 @@ typedef struct{
 
 command cmd_tbl[] =
 {
-    {"start", &not_implemented},
+    {"start", &start_command},
     {"kill", &kill_command},
     {"on", &on_command},
     {"off", &off_command},

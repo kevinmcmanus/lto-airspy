@@ -88,7 +88,7 @@ int ipc_init()
     /* get the ipc key */
     if ((ipc_key = ftok(IPC_Path, IPC_Proj)) == (key_t) -1) errExit("ftok");
 
-    shmid = shmget(ipc_key, sizeof(airspy_ipc_t), IPC_CREAT|0600);
+    shmid = shmget(ipc_key, sizeof(airspy_ipc_t), IPC_CREAT|0660);
     if (shmid == -1) errExit("shmget");
 
     rxd_ipc = (airspy_ipc_t*)shmat(shmid, NULL, 0);
@@ -102,7 +102,7 @@ int ipc_init()
     rxd_ipc->rx_pid = getpid();
 
     /* create & set the ipc semaphore */
-    sid = semget(ipc_key, 1, IPC_CREAT|0600);
+    sid = semget(ipc_key, 1, IPC_CREAT|0660);
     if (sid == -1) errExit("semget");
     arg.val = 0;
     if (semctl(sid, 0, SETVAL, arg) == -1)
