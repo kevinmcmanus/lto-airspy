@@ -38,10 +38,10 @@ static void usage()
 {
 	printf("airspy_rxmon v%s\n", AIRSPY_RXMON_VERSION);
 	printf("Usage:\n");
-    printf("  airspy_rxmon start <airspy_rx options> # starts airspy_rx as daemon\n\n");
+    printf("  airspy_rxmon start <airspy_rx options> [-z <airspy_rx path>] [-o <airspy_rx terminal output path>] # starts airspy_rx as daemon\n\n");
 	printf("  airspy_rxmon kill # terminates currently running airspy_rx\n\n");
 	printf("  airspy_rxmon status # displays current airspy_rx status\n\n");
-    printf("  airspy_rxmon on -d <directory> -f <filename_root> -n <nblocks per file> # starts data recording\n\n");
+    printf("  airspy_rxmon on -d <directory> -f <filename_prefix> -n <nblocks per file> # starts data recording\n\n");
     printf("  airspy_rxmon off # ends data recording\n\n");
     printf("  airspy_rxmon help # displays this message\n");
 
@@ -102,7 +102,7 @@ int on_command(char *cmd, int argc, char **argv){
     int nblocks = 5000; /* default */
 
     printf("***In on_command ***\n");
-    while( (opt = getopt(argc, argv, "-r:d:n:")) != EOF )
+    while( (opt = getopt(argc, argv, "-f:d:n:")) != EOF )
 	{
         switch (opt)
         {
@@ -111,7 +111,7 @@ int on_command(char *cmd, int argc, char **argv){
                 dirname = optarg;
             break;
 
-            case 'r':
+            case 'f':
                 rootname = optarg;
             break;
 
@@ -206,7 +206,9 @@ int kill_command(char *cmd, int argc, char **argv){
 int start_command(char *cmd, int argc, char **argv){
     char *pgrmargv[128], **pargv;
     char *pgrm = "airspy_rx"; //default program to start
-    int i, pid;
+    char *outfile_path = "./airspy_rx.out";
+    FILE *outfile;
+    int i, pid, outfd;
     char procpath[512];
     struct stat statbuf;
 
@@ -224,11 +226,16 @@ int start_command(char *cmd, int argc, char **argv){
     pargv = &pgrmargv[1];
     i = 2;
     while (i < argc){
+        //take -z and -o off the argument list
         if (!strcmp(argv[i],"-z")) {
             /* basic sanity checks on program name */
             if (++i == argc) errAugReturn("missing program name argument to -z option");
             if (argv[i][0] == '-') errAugReturn("invalid program name arguement to -z option");
             pgrm = argv[i];
+        }
+        else if (!strcmp(argv[i],"-o")) {
+            if (++i == argc) errAugReturn("missing file name argument to -o option");
+            outfile_path = argv[i];            
         } else {
             *(pargv++) = argv[i];
         }
@@ -240,8 +247,19 @@ int start_command(char *cmd, int argc, char **argv){
     /* program name at beginning of list */
     pgrmargv[0] = pgrm;
 
+    fflush(NULL);
     if ((pid = fork())<0) errSysError("fork");
     if (pid == 0) {
+        /* redirect stdout, stderror to specified outfile */
+        outfile = fopen(outfile_path,"w+");
+        if (!outfile) errSysError("creating terminal output file")
+        if ( setvbuf(outfile, NULL, _IONBF, 0) != 0 ) errSysError("disabling buffering");
+        outfd = fileno(outfile);
+
+        if ( dup2(outfd, 1) < 0 ) errSysError("redirecting stdout");
+        if ( dup2(outfd, 2) < 0 ) errSysError("redirecting stderr");
+        if ( setvbuf(stdout, NULL, _IONBF, 0) != 0 ) errSysError("disabling buffering, stdout");
+        if ( setvbuf(stderr, NULL, _IONBF, 0) != 0 ) errSysError("disabling buffering, stderr");
         if (execvp(pgrm, pgrmargv) <0) {;
             errSysError("Failed execvp")
             errPrint;
@@ -250,7 +268,7 @@ int start_command(char *cmd, int argc, char **argv){
         fprintf(stderr,"how'd we get here?\n");   
     }
 
-    printf("Attempting to start %s, pid: %d\n", pgrm, pid);
+    printf("Daemon %s started, pid: %d\n", pgrm, pid);
 
     return(0);
 }
